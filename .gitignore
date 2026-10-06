@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.turbo/
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.vscode/
+.idea/
+.zcode/
+playwright-report/
+test-results/
+
+# Generated database artifacts
+packages/database/drizzle/meta/

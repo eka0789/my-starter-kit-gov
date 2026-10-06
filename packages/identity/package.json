@@ -1,0 +1,14 @@
+{
+  "name": "@kit/identity",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@kit/types": "workspace:*",
+    "jose": "^5.2.3",
+    "zod": "^3.22.4"
+  }
+}

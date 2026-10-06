@@ -1,0 +1,32 @@
+{
+  "name": "starter-kit-gov",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Enterprise Government Starter Kit - Monorepo compliant dengan UU PDP, SPBE, BSSN, dan Satu Data Indonesia",
+  "license": "MIT",
+  "author": "Government IT Team",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@9.1.0",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "lint": "turbo run lint",
+    "format": "prettier --write \"**/*.{ts,tsx,md,json}\"",
+    "test": "turbo run test",
+    "test:e2e": "turbo run test:e2e",
+    "typecheck": "turbo run typecheck",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "db:generate": "pnpm --filter @kit/database db:generate",
+    "db:migrate": "pnpm --filter @kit/database db:migrate",
+    "db:studio": "pnpm --filter @kit/database db:studio"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.27.1",
+    "prettier": "^3.2.5",
+    "turbo": "^1.13.2",
+    "typescript": "^5.4.5"
+  }
+}
