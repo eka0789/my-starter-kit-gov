@@ -6,6 +6,16 @@ Standar API REST untuk aplikasi pemerintah. Setiap API yang dihasilkan wajib men
 
 ---
 
+## Environment & Base Config
+
+- **Development**: `http://localhost:8787` (lihat `.env.example` → `PORT=8787`, dijalankan via `pnpm dev`).
+- **Production**: base URL mengikuti domain instansi; masuk di belakang Nginx/gateway (lihat `infra/nginx.conf`).
+- **Response format**: JSON, selalu menyertakan `meta.request_id` (dijamin middleware `requestIdMiddleware` di `apps/api/src/middleware/request-id.ts`).
+- **Versioning**: base path wajib `/api/v1`; breaking change = major version baru dengan deprecation ≥ 6 bulan.
+- Mount route dilakukan di `apps/api/src/app.ts` (bukan `index.ts`). Untuk test, `apps/api/src/index.ts` tidak menjalankan listener saat `NODE_ENV=test` (lihat `app.ts` + `vitest.config.ts`).
+
+---
+
 ## API Style & URL
 
 - REST API, nouns bukan verbs.
@@ -164,3 +174,14 @@ Audit failure = mutation rollback/fail-closed. Detail: `audit-integrity.md`.
 - Index kolom search/join; hindari N+1.
 - Setiap endpoint memiliki OpenAPI schema, contoh request/response, auth requirement, permission, error codes, dan data classification.
 - Endpoint integrasi SPLP wajib metadata SDI dan data lineage.
+
+---
+
+## AI Agent Rules (Saat Menambah/Mengubah Endpoint)
+
+1. Baca dokumen ini + `security.md` sebelum menulis endpoint.
+2. Gunakan pola yang sudah ada (`apps/api/src/features/employee-profiles/` dan `.ai/templates/api.md`). Jangan mengarang pola baru: response shape, error shape, middleware auth, audit fail-closed.
+3. Gunakan `authMiddleware` + `requirePermission` dari `apps/api/src/middleware/auth.ts`. Dilarang membuat middleware auth baru yang duplikat.
+4. Package helper berasal dari `@kit/*` (`@kit/identity`, `@kit/audit`, `@kit/database`, `@kit/types`). Dilarang import dari alias lain.
+5. Setiap endpoint baru: Zod schema (body/query/params), OpenAPI doc, dan — jika mutasi — audit log dalam transaksi + update jika ada konvensi baru di dokumen ini.
+6. Jika dokumen ini bertentangan dengan implementasi nyata, laporkan konflik — jangan diam-diam memilih salah satu.

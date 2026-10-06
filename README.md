@@ -17,6 +17,17 @@ pnpm dev
 - API: http://localhost:8787
 - Web: http://localhost:5173
 
+## Quality Gates
+
+Semua perintah berikut wajib hijau sebelum menyatakan pekerjaan selesai (lihat `.ai/coding-standards.md`):
+
+```bash
+pnpm lint        # ESLint + jsx-a11y (0 error)
+pnpm typecheck   # tsc --noEmit (strict)
+pnpm test        # Vitest (apps/api smoke tests)
+pnpm build       # Turbo build (api + web)
+```
+
 ## Struktur
 
 - `apps/api` — Hono API

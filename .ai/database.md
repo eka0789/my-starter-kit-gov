@@ -70,6 +70,26 @@
 
 ---
 
+## Environment & Seed
+
+1. **Koneksi via Environment**:
+   - `DATABASE_URL` harus berasal dari environment variable — dilarang hardcode connection string di source. `packages/database/src/client.ts` sudah throw `DATABASE_URL is required` bila tidak tersedia (fail-fast).
+   - Development, staging, dan production harus memakai database terpisah (lihat `.env.example` + profil deployment di `tech-stack.md`).
+   - Production memakai `PgBouncer` untuk connection pooling; jangan mengubah `max` di client tanpa alasan.
+
+2. **Seed Data**:
+   - Seed script hanya membuat data development/test (contoh: pegawai dummy, wilayah BPS), **bukan** data asli atau rahasia.
+   - Dilarang menaruh seed berisi NIK/NIP asli, kata sandi, TTE token, atau secret apa pun.
+   - Kolom `created_by`/`updated_by` pada seed wajib memakai service principal `SERVICE_PRINCIPAL_ID` (`00000000-0000-0000-0000-000000000001`) dari `@kit/types`.
+   - Seed tidak boleh mengubah data production; jalankan hanya di environment yang dituju.
+
+3. **Aturan Production**:
+   - Dilarang `pnpm db:studio` / reset / migrate langsung di production tanpa proses rilis.
+   - Mutasi multi-tabel wajib `db.transaction` (termasuk menulis `audit_logs` bersama data; lihat `audit-integrity.md`).
+   - Backup sebelum perubahan destructive; dokumentasikan restore drill.
+
+---
+
 ## Tabel Referensi Wilayah (BPS/Kemendagri)
 
 Gunakan kode referensi resmi sesuai `interoperability.md`:

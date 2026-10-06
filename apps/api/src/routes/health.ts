@@ -20,12 +20,13 @@ healthRouter.get('/ready', async (c) => {
       database: 'connected',
       timestamp: new Date().toISOString(),
     });
-  } catch (err: any) {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Database unreachable';
     return c.json(
       {
         status: 'not_ready',
         database: 'disconnected',
-        error: err.message,
+        error: message,
         timestamp: new Date().toISOString(),
       },
       503

@@ -1,5 +1,5 @@
-import { and, desc, eq, ilike, isNull, sql } from 'drizzle-orm';
-import { db } from '@kit/database';
+import { and, desc, eq, ilike, isNull, sql, type SQL } from 'drizzle-orm';
+import { db, type Database } from '@kit/database';
 import { employeeProfiles } from '@kit/database/schema';
 import { logAudit } from '@kit/audit';
 import type { Actor, Uuid } from '@kit/types';
@@ -13,7 +13,7 @@ export async function listEmployees(query: EmployeeListQuery) {
   const { page, pageSize, search } = query;
   const offset = (page - 1) * pageSize;
 
-  const conditions = [isNull(employeeProfiles.deletedAt)];
+  const conditions: SQL[] = [isNull(employeeProfiles.deletedAt)];
 
   if (search) {
     const sanitized = sanitizeSearchQuery(search);
@@ -81,7 +81,7 @@ export async function createEmployee(
       throw new Error('Gagal menambahkan pegawai');
     }
 
-    await logAudit(tx as any, {
+    await logAudit(tx as unknown as Database, {
       actor,
       action: 'EMPLOYEE_CREATE',
       resourceType: 'employee_profiles',
@@ -121,7 +121,7 @@ export async function softDeleteEmployee(
       })
       .where(eq(employeeProfiles.id, id));
 
-    await logAudit(tx as any, {
+    await logAudit(tx as unknown as Database, {
       actor,
       action: 'EMPLOYEE_DELETE',
       resourceType: 'employee_profiles',

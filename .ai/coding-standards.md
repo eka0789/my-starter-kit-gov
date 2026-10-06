@@ -40,3 +40,36 @@
 - **Functions & Variables**: `camelCase` (contoh: `calculateWorkingDays()`, `isPending`)
 - **Database Tables & Columns**: `snake_case` (contoh: `employee_profiles`, `created_at`)
 - **Constants / Enums**: `UPPER_SNAKE_CASE` (contoh: `MAX_FILE_SIZE_MB`, `MAIL_STATUS`)
+
+---
+
+## 🛠️ Tooling & Perintah Verifikasi
+
+Konfigurasi nyata di repositori (bukan placeholder):
+
+- **Formatter**: `Prettier` — konfigurasi di `prettier.config.cjs` (root): `semi: true`, `singleQuote: true`, `trailingComma: 'all'`, `printWidth: 100` (bukan 80).
+- **Linter**: `ESLint 8` + `typescript-eslint` + `eslint-plugin-jsx-a11y` — konfigurasi di `.eslintrc.cjs` (root). Aturan wajib (error): dilarang `any` (`@typescript-eslint/no-explicit-any`), dilarang `@ts-ignore` (`ban-ts-comment`), dilarang komentar `TODO`/`FIXME` (`no-warning-comments`), aksesibilitas jsx-a11y (WCAG 2.1 AA).
+- **Type Checking**: `tsc --noEmit` (TypeScript strict; lihat `tsconfig.json` root + `packages/config/tsconfig.base.json`).
+- **Unit/Integration test**: `Vitest` (di `apps/api`, konfigurasi `apps/api/vitest.config.ts`).
+
+Perintah wajib dijalankan sebelum menyatakan pekerjaan selesai (dari root repo):
+
+```bash
+pnpm lint        # ESLint semua package (harus 0 error)
+pnpm typecheck   # tsc --noEmit semua package
+pnpm test        # Vitest apps/api
+pnpm build       # Turbo build semua package
+```
+
+---
+
+## ✅ Sebelum Menyatakan Selesai (Before Finishing)
+
+Seluruh pengecekan wajib hijau; kegagalan salah satu = pekerjaan belum selesai:
+
+1. **Lint**: `pnpm lint` tanpa error. Jangan memperbaiki error dengan `@ts-ignore` atau `eslint-disable` tanpa alasan terdokumentasi.
+2. **Type check**: `pnpm typecheck` tanpa error. Dilarang `any`, `@ts-ignore`, atau nonaktifkan strict mode.
+3. **Test**: `pnpm test` lulus. Tambahkan/update test untuk perubahan behavior.
+4. **Build**: `pnpm build` sukses untuk semua package.
+5. **Responsif & Aksesibilitas**: periksa layout responsif dan WCAG 2.1 AA (`accessibility.md`, `definition-of-done.md`) jika UI berubah.
+6. **Bersih**: hapus log debugging, kode mati, dan variabel/import tak terpakai (sudah dijamin linter + `noUnusedLocals`).

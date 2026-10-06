@@ -27,11 +27,12 @@ export async function authMiddleware(c: Context, next: Next) {
     const actor = await LocalAdapter.validate(token);
     c.set('actor', actor);
     await next();
-  } catch (err: any) {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Token tidak valid';
     return c.json(
       {
         success: false,
-        message: err.message ?? 'Token tidak valid',
+        message,
         meta: { request_id: c.get('requestId'), timestamp: new Date().toISOString() },
       },
       401

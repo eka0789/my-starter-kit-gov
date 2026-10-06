@@ -4,7 +4,7 @@ import type { Actor } from '@kit/types';
 export interface IdentityProvider {
   validateToken(token: string): Promise<Actor>;
   getLoginUrl(state: string, nonce: string): string;
-  handleCallback(code: string, state: string): Promise<{ actor: Actor; session: any }>;
+  handleCallback(code: string, state: string): Promise<{ actor: Actor; session: unknown }>;
 }
 
 export const ActorSchema = z.object({

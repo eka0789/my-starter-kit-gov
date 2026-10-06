@@ -1,382 +1,229 @@
-# Template: Hono REST API Route & Handler
+# Template: Hono REST API Route & Service (Pola Kanonis `apps/api`)
 
-Boilerplate kode REST API Hono lengkap dengan Autentikasi JWT, RBAC Permission, Zod Validator, Parameterized Query, NIK/NIP Masking, dan Audit Logger Fail-Closed.
+Boilerplate REST API Hono yang akurat dengan implementasi aktual di repo ini: `authMiddleware` + `requirePermission` dari `apps/api/src/middleware/auth.ts`, service terpisah yang menulis audit **fail-closed** via `logAudit` dari `@kit/audit`, dan DTO map yang tidak mengembalikan raw DB row.
+
+> Gunakan pola di `apps/api/src/features/employee-profiles/` sebagai acuan terbaru. Template di bawah adalah generalisasi yang sudah disesuaikan dengan nama package nyata (`@kit/*`) dan struktur `routes.ts` + `schema.ts` + `service.ts` per fitur.
 
 ---
+
+## 1. Zod Schema (`./schema.ts`)
+
+```typescript
+import { z } from 'zod';
+
+export const ListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(10),
+  search: z.string().trim().max(100).optional(),
+});
+
+export const CreateItemSchema = z.object({
+  // contoh: identitas wajib & validasi ketat (lihat business-rules.md)
+  code: z.string().min(1).max(64),
+  name: z.string().min(1, 'Nama wajib diisi').max(255),
+  email: z.string().email('Format email tidak valid').optional(),
+});
+
+export type ListQuery = z.infer<typeof ListQuerySchema>;
+export type CreateItemInput = z.infer<typeof CreateItemSchema>;
+```
+
+## 2. Service dengan Audit Fail-Closed (`./service.ts`)
+
+```typescript
+import { and, desc, eq, ilike, isNull, sql, type SQL } from 'drizzle-orm';
+import { db, type Database } from '@kit/database';
+import { employeeProfiles } from '@kit/database/schema';
+import { logAudit } from '@kit/audit';
+import type { Actor, Uuid } from '@kit/types';
+import type { CreateItemInput, ListQuery } from './schema';
+
+function sanitizeSearchQuery(query: string): string {
+  return query.replace(/[%_\\]/g, '\\$&').trim();
+}
+
+export async function listItems(query: ListQuery) {
+  const { page, pageSize, search } = query;
+  const offset = (page - 1) * pageSize;
+
+  const conditions: SQL[] = [isNull(employeeProfiles.deletedAt)];
+
+  if (search) {
+    const sanitized = sanitizeSearchQuery(search);
+    conditions.push(
+      sql`(${ilike(employeeProfiles.name, `%${sanitized}%`)} OR ${ilike(employeeProfiles.nip, `%${sanitized}%`)})`
+    );
+  }
+
+  const [data, totalCount] = await Promise.all([
+    db
+      .select()
+      .from(employeeProfiles)
+      .where(and(...conditions))
+      .orderBy(desc(employeeProfiles.createdAt))
+      .limit(pageSize)
+      .offset(offset),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(employeeProfiles)
+      .where(and(...conditions)),
+  ]);
+
+  return {
+    data,
+    pagination: {
+      page,
+      pageSize,
+      total: totalCount[0]?.count ?? 0,
+      totalPages: Math.ceil((totalCount[0]?.count ?? 0) / pageSize),
+    },
+  };
+}
+
+export async function createItem(
+  actor: Actor,
+  input: CreateItemInput,
+  requestId: string,
+  ipAddress?: string
+) {
+  return await db.transaction(async (tx) => {
+    const [inserted] = await tx
+      .insert(employeeProfiles)
+      .values({
+        nip: input.code,
+        name: input.name,
+        email: input.email,
+        createdBy: actor.id,
+        updatedBy: actor.id,
+      })
+      .returning();
+
+    if (!inserted) {
+      throw new Error('Gagal menambahkan data');
+    }
+
+    // Fail-closed: bila logAudit gagal, transaksi ikut rollback.
+    await logAudit(tx as unknown as Database, {
+      actor,
+      action: 'ITEM_CREATE',
+      resourceType: 'employee_profiles',
+      resourceId: inserted.id,
+      requestId,
+      ipAddress,
+      newValue: { nip: inserted.nip, name: inserted.name },
+    });
+
+    return inserted;
+  });
+}
+```
+
+## 3. Route Hono (`./routes.ts`)
 
 ```typescript
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { authMiddleware } from '@/middleware/auth';
-import { requirePermission } from '@/middleware/rbac';
-import { z } from 'zod';
-import { db } from '@my-starter-kit-gov/database';
-import { employeeProfiles, auditLogs } from '@my-starter-kit-gov/database/schema';
-import { eq, isNull, and, or, ilike, count, sql } from 'drizzle-orm';
-import { computeEventHash, getLastEventHash } from '@my-starter-kit-gov/audit';
-import { maskNip } from '@my-starter-kit-gov/utils';
+import { authMiddleware, requirePermission } from '../../middleware/auth';
+import { CreateItemSchema, ListQuerySchema } from './schema';
+import { createItem, listItems, softDeleteItem } from './service';
 
-const SYSTEM_PRINCIPAL_ID = '00000000-0000-0000-0000-000000000001';
+export const itemRoutes = new Hono();
 
-// ============================================================================
-// 1. Zod Validation Schemas
-// ============================================================================
-const createEmployeeSchema = z.object({
-  nip: z.string().length(18, 'NIP harus persis 18 digit angka').regex(/^\d{18}$/, 'NIP hanya boleh angka'),
-  name: z.string().min(3, 'Nama minimal 3 karakter').max(255),
-  email: z.string().email('Format email tidak valid').max(255),
-  department_id: z.string().uuid('ID Departemen tidak valid')
-});
+itemRoutes.use('*', authMiddleware);
 
-const queryEmployeeSchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).default(10),
-  q: z.string().trim().max(100).optional()
-});
-
-const idParamSchema = z.object({
-  id: z.string().uuid('ID tidak valid')
-});
-
-// ============================================================================
-// 2. Helper: Sanitize Search Query (Escape LIKE Wildcards)
-// ============================================================================
-function sanitizeSearchQuery(q: string): string {
-  // Escape special LIKE characters: %, _, \
-  return q.replace(/[%_\\]/g, '\\$&');
-}
-
-// ============================================================================
-// 3. Helper: Mask NIK/NIP berdasarkan Role
-// ============================================================================
-function mapEmployeeDto(employee: typeof employeeProfiles.$inferSelect, canViewFullNip: boolean) {
-  return {
-    id: employee.id,
-    nip: canViewFullNip ? employee.nip : maskNip(employee.nip), // Mask: ****1234
-    name: employee.name,
-    email: employee.email,
-    departmentId: employee.departmentId,
-    status: employee.status,
-    createdAt: employee.createdAt,
-    updatedAt: employee.updatedAt,
-  };
-}
-
-// ============================================================================
-// 4. Helper: Write Audit Log (Fail-Closed)
-// ============================================================================
-async function writeAuditLog(tx: typeof db, params: {
-  actorId: string;
-  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'READ';
-  resourceType: string;
-  resourceId: string;
-  requestId?: string;
-  ipAddress?: string;
-  userAgent?: string;
-  changes?: Record<string, unknown>;
-}) {
-  const previousEventHash = await getLastEventHash(tx);
-  const eventHash = computeEventHash({
-    actorId: params.actorId,
-    action: params.action,
-    resourceType: params.resourceType,
-    resourceId: params.resourceId,
-    previousEventHash,
-  });
-
-  await tx.insert(auditLogs).values({
-    occurredAt: new Date(),
-    actorId: params.actorId,
-    action: params.action,
-    resourceType: params.resourceType,
-    resourceId: params.resourceId,
-    requestId: params.requestId,
-    ipAddress: params.ipAddress,
-    userAgent: params.userAgent,
-    eventHash,
-    previousEventHash,
-  });
-}
-
-// ============================================================================
-// 5. Hono Router Setup
-// ============================================================================
-const employeeRoutes = new Hono();
-
-employeeRoutes.use('*', authMiddleware);
-
-// ============================================================================
-// GET /api/v1/employees (List with Pagination & Search)
-// ============================================================================
-employeeRoutes.get(
+itemRoutes.get(
   '/',
-  requirePermission('employee.read'),
-  zValidator('query', queryEmployeeSchema),
+  requirePermission('pegawai.read'), // ganti permission sesuai resource
+  zValidator('query', ListQuerySchema),
   async (c) => {
-    const { page, pageSize, q } = c.req.valid('query');
-    const currentUser = c.get('user');
-    const offset = (page - 1) * pageSize;
-
-    // Parameterized WHERE: selalu filter deleted_at IS NULL
-    const conditions = [isNull(employeeProfiles.deletedAt)];
-
-    if (q) {
-      const sanitized = sanitizeSearchQuery(q);
-      // Gunakan ilike dengan parameterized binding (BUKAN interpolasi string)
-      conditions.push(
-        or(
-          ilike(employeeProfiles.nip, `%${sanitized}%`),
-          ilike(employeeProfiles.name, `%${sanitized}%`)
-        )!
-      );
-    }
-
-    const whereClause = and(...conditions);
-
-    const [items, totalResult] = await Promise.all([
-      db.select()
-        .from(employeeProfiles)
-        .where(whereClause)
-        .limit(pageSize)
-        .offset(offset),
-      db.select({ total: count() })
-        .from(employeeProfiles)
-        .where(whereClause)
-    ]);
-
-    const total = totalResult[0]?.total || 0;
-    const canViewFullNip = currentUser.permissions?.includes('employee.view_full_nip') ?? false;
+    const query = c.req.valid('query');
+    const result = await listItems(query);
 
     return c.json({
       success: true,
-      message: 'Daftar pegawai berhasil diambil',
-      data: items.map((item) => mapEmployeeDto(item, canViewFullNip)),
+      message: 'Berhasil mengambil data',
+      data: result.data, // pastikan DTO mask NIK/NIP (lihat catatan no. 3)
       meta: {
-        page,
-        pageSize,
-        total,
-        totalPages: Math.ceil(total / pageSize),
-        requestId: c.req.header('x-request-id'),
+        request_id: c.get('requestId'),
         timestamp: new Date().toISOString(),
-        sdiMetadata: {
-          dataOwner: 'Bagian Kepegawaian',
-          dataClassification: 'Pribadi Spesifik',
-          sourceSystem: 'SIMPEG'
-        }
-      }
+        version: 'v1',
+        pagination: result.pagination,
+        sdi_metadata: {
+          dataOwner: process.env.INSTANSI_NAME ?? 'Instansi',
+          dataClassification: 'INTERNAL',
+        },
+      },
     });
   }
 );
 
-// ============================================================================
-// GET /api/v1/employees/:id (Single Resource)
-// ============================================================================
-employeeRoutes.get(
-  '/:id',
-  requirePermission('employee.read'),
-  zValidator('param', idParamSchema),
-  async (c) => {
-    const { id } = c.req.valid('param');
-    const currentUser = c.get('user');
-
-    const [item] = await db.select()
-      .from(employeeProfiles)
-      .where(and(eq(employeeProfiles.id, id), isNull(employeeProfiles.deletedAt)))
-      .limit(1);
-
-    if (!item) {
-      return c.json({ success: false, message: 'Pegawai tidak ditemukan' }, 404);
-    }
-
-    const canViewFullNip = currentUser.permissions?.includes('employee.view_full_nip') ?? false;
-
-    return c.json({
-      success: true,
-      message: 'Detail pegawai berhasil diambil',
-      data: mapEmployeeDto(item, canViewFullNip)
-    });
-  }
-);
-
-// ============================================================================
-// POST /api/v1/employees (Create Item)
-// ============================================================================
-employeeRoutes.post(
+itemRoutes.post(
   '/',
-  requirePermission('employee.create'),
-  zValidator('json', createEmployeeSchema),
+  requirePermission('pegawai.create'),
+  zValidator('json', CreateItemSchema),
   async (c) => {
-    const body = c.req.valid('json');
-    const currentUser = c.get('user');
+    const actor = c.get('actor');
+    const input = c.req.valid('json');
+    const requestId = c.get('requestId');
+    const ipAddress = c.req.header('x-forwarded-for') ?? c.req.header('cf-connecting-ip');
 
-    if (!currentUser?.id) {
-      return c.json({ success: false, message: 'Sesi tidak valid' }, 401);
-    }
+    const item = await createItem(actor, input, requestId, ipAddress);
 
-    // Transaksi: INSERT + Audit Log (Fail-Closed)
-    const newItem = await db.transaction(async (tx) => {
-      const [inserted] = await tx.insert(employeeProfiles).values({
-        nip: body.nip,
-        name: body.name,
-        email: body.email,
-        departmentId: body.department_id,
-        createdBy: currentUser.id,
-        updatedBy: currentUser.id,
-      }).returning();
-
-      await writeAuditLog(tx, {
-        actorId: currentUser.id,
-        action: 'CREATE',
-        resourceType: 'employee_profiles',
-        resourceId: inserted.id,
-        requestId: c.req.header('x-request-id'),
-        ipAddress: c.req.header('x-forwarded-for') || undefined,
-        userAgent: c.req.header('user-agent'),
-      });
-
-      return inserted;
-    });
-
-    const canViewFullNip = currentUser.permissions?.includes('employee.view_full_nip') ?? false;
-
-    return c.json({
-      success: true,
-      message: 'Pegawai berhasil ditambahkan',
-      data: mapEmployeeDto(newItem, canViewFullNip)
-    }, 201);
+    return c.json(
+      {
+        success: true,
+        message: 'Data berhasil ditambahkan',
+        data: { id: item.id },
+        meta: {
+          request_id: requestId,
+          timestamp: new Date().toISOString(),
+          version: 'v1',
+          pagination: null,
+          sdi_metadata: null,
+        },
+      },
+      201
+    );
   }
 );
 
-// ============================================================================
-// PATCH /api/v1/employees/:id (Update Partially)
-// ============================================================================
-employeeRoutes.patch(
+itemRoutes.delete(
   '/:id',
-  requirePermission('employee.update'),
-  zValidator('param', idParamSchema),
-  zValidator('json', createEmployeeSchema.partial()),
+  requirePermission('pegawai.delete'),
   async (c) => {
-    const { id } = c.req.valid('param');
-    const body = c.req.valid('json');
-    const currentUser = c.get('user');
+    const actor = c.get('actor');
+    const id = String(c.req.param('id'));
+    const requestId = c.get('requestId');
+    const ipAddress = c.req.header('x-forwarded-for');
 
-    if (!currentUser?.id) {
-      return c.json({ success: false, message: 'Sesi tidak valid' }, 401);
-    }
-
-    const updated = await db.transaction(async (tx) => {
-      const [existing] = await tx.select()
-        .from(employeeProfiles)
-        .where(and(eq(employeeProfiles.id, id), isNull(employeeProfiles.deletedAt)))
-        .limit(1);
-
-      if (!existing) {
-        return null;
-      }
-
-      const [result] = await tx.update(employeeProfiles)
-        .set({
-          ...body,
-          departmentId: body.department_id ?? existing.departmentId,
-          updatedBy: currentUser.id,
-          updatedAt: new Date(),
-        })
-        .where(eq(employeeProfiles.id, id))
-        .returning();
-
-      await writeAuditLog(tx, {
-        actorId: currentUser.id,
-        action: 'UPDATE',
-        resourceType: 'employee_profiles',
-        resourceId: id,
-        requestId: c.req.header('x-request-id'),
-        ipAddress: c.req.header('x-forwarded-for') || undefined,
-      });
-
-      return result;
-    });
-
-    if (!updated) {
-      return c.json({ success: false, message: 'Pegawai tidak ditemukan' }, 404);
-    }
-
-    const canViewFullNip = currentUser.permissions?.includes('employee.view_full_nip') ?? false;
+    await softDeleteItem(actor, id, requestId, ipAddress);
 
     return c.json({
       success: true,
-      message: 'Pegawai berhasil diperbarui',
-      data: mapEmployeeDto(updated, canViewFullNip)
+      message: 'Data berhasil dihapus (soft delete)',
+      data: null,
+      meta: {
+        request_id: requestId,
+        timestamp: new Date().toISOString(),
+        version: 'v1',
+        pagination: null,
+        sdi_metadata: null,
+      },
     });
   }
 );
-
-// ============================================================================
-// DELETE /api/v1/employees/:id (Soft Delete)
-// ============================================================================
-employeeRoutes.delete(
-  '/:id',
-  requirePermission('employee.delete'),
-  zValidator('param', idParamSchema),
-  async (c) => {
-    const { id } = c.req.valid('param');
-    const currentUser = c.get('user');
-
-    if (!currentUser?.id) {
-      return c.json({ success: false, message: 'Sesi tidak valid' }, 401);
-    }
-
-    const deleted = await db.transaction(async (tx) => {
-      const [existing] = await tx.select()
-        .from(employeeProfiles)
-        .where(and(eq(employeeProfiles.id, id), isNull(employeeProfiles.deletedAt)))
-        .limit(1);
-
-      if (!existing) {
-        return null;
-      }
-
-      const [result] = await tx.update(employeeProfiles)
-        .set({
-          deletedAt: new Date(),
-          deletedBy: currentUser.id,
-        })
-        .where(eq(employeeProfiles.id, id))
-        .returning();
-
-      await writeAuditLog(tx, {
-        actorId: currentUser.id,
-        action: 'DELETE',
-        resourceType: 'employee_profiles',
-        resourceId: id,
-        requestId: c.req.header('x-request-id'),
-        ipAddress: c.req.header('x-forwarded-for') || undefined,
-      });
-
-      return result;
-    });
-
-    if (!deleted) {
-      return c.json({ success: false, message: 'Pegawai tidak ditemukan' }, 404);
-    }
-
-    return c.json({
-      success: true,
-      message: 'Pegawai berhasil dihapus (soft delete)'
-    });
-  }
-);
-
-export { employeeRoutes };
 ```
 
 ---
 
 ## Catatan Penting
 
-1. **Parameterized Query**: Gunakan `ilike()`, `eq()`, `and()` dari Drizzle. Dilarang interpolasi string ke SQL (`sql\`...\${userInput}\`` tanpa tagged template).
-2. **Sanitize Search**: Escape `%`, `_`, `\` sebelum `ilike`. Batas panjang query: 100 karakter.
-3. **NIK/NIP Masking**: Default mask (`****1234`) kecuali user punya permission `employee.view_full_nip`.
-4. **Fail-Closed Audit**: INSERT + audit log dalam transaksi yang sama. Jika audit gagal, rollback mutasi.
-5. **Actor Validation**: Cek `currentUser.id` sebelum mutasi. Background job gunakan `SYSTEM_PRINCIPAL_ID`.
-6. **Soft Delete**: Set `deletedAt` + `deletedBy`. Jangan hard-delete. Purge hanya via workflow DPO.
-7. **SDI Metadata**: Sertakan `sdiMetadata` di response `meta` untuk interoperabilitas Satu Data Indonesia.
+1. **Package alias**: package di repo ini bernama `@kit/*` (`@kit/database`, `@kit/audit`, `@kit/types`). Jangan menulis `@my-starter-kit-gov/*` atau alias lain — import tidak akan resolve.
+2. **Auth middleware**: `authMiddleware` dan `requirePermission` ada di `apps/api/src/middleware/auth.ts`. Tidak ada modul `middleware/rbac` terpisah.
+3. **Masking NIK/NIP**: DTO mapping di template di atas sengaja sederhana. Untuk resource ber-PII, terapkan masking (`****1234`) di lapisan service/DTO, bukan di client. Lihat `data-protection.md` dan `api-rules.md` § Data Privacy API.
+4. **Audit fail-closed**: `logAudit` dari `@kit/audit` (lihat `packages/audit/src/logger.ts`). Panggil dalam transaksi yang sama dengan mutasi — kalau audit gagal, rollback. Fungsi `computeEventHash`/`getLastEventHash` **tidak** diekspor; hash chain dihitung internal oleh `logAudit`/`verifyChain`.
+5. **Parameterized query**: gunakan `sql` tagged template atau helper Drizzle (`ilike`, `eq`, `and`). Dilarang concat string user ke SQL.
+6. **Sanitasi search**: escape `%`, `_`, `\`; batas 100 karakter (lihat `api-rules.md` § Pagination).
+7. **Soft delete**: set `deletedAt` + `deletedBy`, jangan hard-delete. Purge hanya via workflow DPO (lihat `data-protection.md`).
+8. **SDI metadata**: sertakan `sdi_metadata` di `meta` untuk interoperabilitas Satu Data Indonesia (lihat `interoperability.md`).
+9. **Mount route**: daftarkan router di `apps/api/src/app.ts` (`app.route('/api/v1/...', ...)`), bukan di `index.ts`.

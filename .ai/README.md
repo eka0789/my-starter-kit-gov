@@ -38,11 +38,11 @@ Ini adalah **blueprint arsitektur + instruksi AI**. Kode aplikasi belum ada. Dev
 ├── architecture.md               # Arsitektur Feature-First Vertical Slice
 ├── folder-structure.md           # Struktur direktori monorepo & aplikasi
 ├── business-rules.md             # Aturan bisnis & regulasi standar pemerintah
-├── coding-standards.md           # Standar penulisan kode & type-safety
+├── coding-standards.md           # Standar penulisan kode, tooling & gate verifikasi
 ├── backend.md                    # Aturan pengembangan Backend (Hono + Zod + Drizzle)
 ├── frontend.md                   # Aturan pengembangan Frontend (React + Vite + shadcn)
-├── database.md                   # Aturan database PostgreSQL & Drizzle ORM
-├── api-rules.md                  # Standar REST API & OpenAPI
+├── database.md                   # Aturan database PostgreSQL & Drizzle ORM (termasuk seed & env)
+├── api-rules.md                  # Standar REST API & OpenAPI (termasuk base config & AI rules)
 ├── security.md                   # Keamanan RBAC, Audit Trail, & OWASP
 ├── data-protection.md            # Standar implementasi UU PDP No. 27/2022
 ├── identity-and-signature.md     # SSO OIDC/SAML2 & TTE BSrE
