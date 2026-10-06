@@ -175,6 +175,9 @@ importers:
       '@kit/types':
         specifier: workspace:*
         version: link:../types
+      drizzle-orm:
+        specifier: ^0.33.0
+        version: 0.33.0(@types/react@18.3.31)(postgres@3.4.9)(react@18.3.1)
       zod:
         specifier: ^3.22.4
         version: 3.25.76
@@ -183,6 +186,9 @@ importers:
 
   packages/database:
     dependencies:
+      '@kit/types':
+        specifier: workspace:*
+        version: link:../types
       drizzle-orm:
         specifier: ^0.33.0
         version: 0.33.0(@types/react@18.3.31)(postgres@3.4.9)(react@18.3.1)
@@ -190,9 +196,15 @@ importers:
         specifier: ^3.4.4
         version: 3.4.9
     devDependencies:
+      dotenv-cli:
+        specifier: ^7.4.2
+        version: 7.4.4
       drizzle-kit:
         specifier: ^0.24.2
         version: 0.24.2
+      tsx:
+        specifier: ^4.7.2
+        version: 4.23.15
       typescript:
         specifier: ^5.4.5
         version: 5.9.3

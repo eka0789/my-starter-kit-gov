@@ -73,6 +73,8 @@
 
 ## Security Headers (Wajib)
 
+Baseline sudah terpasang di `apps/api/src/middleware/security-headers.ts` dan `infra/nginx.conf`:
+
 ```
 Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'
 X-Content-Type-Options: nosniff
@@ -90,6 +92,10 @@ Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
 - API publik: 100 request / menit per IP.
 - API authenticated: 1000 request / menit per user.
 - Sensitive operation (export, TTE, data subject request): 10 request / jam per user.
+
+Baseline terpasang di `apps/api/src/middleware/rate-limit.ts` (in-memory per instance):
+global `/api/*` 100 req/menit, login 5/15 menit. Sensitive operation dan limit per-user
+diimplementasikan per fitur; production wajib tambahan gateway (Nginx `limit_req`) / Redis.
 
 ---
 

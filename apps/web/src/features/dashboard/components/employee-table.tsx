@@ -1,16 +1,20 @@
-import { StatusBadge } from '@kit/ui';
+import { StatusBadge, Input } from '@kit/ui';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
+import { useAuth } from '../../auth/context/auth-context';
+import { useDebouncedValue } from '../../../hooks/use-debounced-value';
 import { employeeQueryKeys, employeeService } from '../services/employee-service';
 import type { EmployeeListItem } from '../types/employee.types';
 
 export function EmployeeTable() {
-  const [search, setSearch] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const search = useDebouncedValue(searchInput);
+  const { token } = useAuth();
 
-  const { data, isLoading, isError, refetch } = useQuery({
+  const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: employeeQueryKeys.list({ page: 1, pageSize: 10, search }),
-    queryFn: () => employeeService.listEmployees({ page: 1, pageSize: 10, search }),
-    enabled: false,
+    queryFn: () => employeeService.listEmployees({ page: 1, pageSize: 10, search }, token ?? undefined),
+    enabled: Boolean(token),
   });
 
   if (isLoading) {
@@ -26,7 +30,9 @@ export function EmployeeTable() {
   if (isError) {
     return (
       <div role="alert" className="flex flex-col items-center gap-2 py-8">
-        <p className="text-sm text-red-600">Gagal memuat data pegawai</p>
+        <p className="text-sm text-red-600">
+          {error instanceof Error ? error.message : 'Gagal memuat data pegawai'}
+        </p>
         <button
           onClick={() => refetch()}
           className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md"
@@ -45,17 +51,17 @@ export function EmployeeTable() {
         <label htmlFor="employee-search" className="sr-only">
           Cari pegawai
         </label>
-        <input
+        <Input
           id="employee-search"
           type="search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
           placeholder="Cari nama atau NIP..."
-          className="w-full max-w-xs px-3 py-2 text-sm border border-border rounded-md"
+          className="max-w-xs"
         />
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto" aria-busy={isFetching}>
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border">
@@ -76,6 +82,13 @@ export function EmployeeTable() {
                 </td>
               </tr>
             ))}
+            {employees.length === 0 && (
+              <tr>
+                <td colSpan={3} className="py-8 text-center text-muted-foreground">
+                  Tidak ada data pegawai.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

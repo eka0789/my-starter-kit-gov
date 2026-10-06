@@ -16,12 +16,12 @@
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md,json}\"",
     "test": "turbo run test",
-    "test:e2e": "turbo run test:e2e",
     "typecheck": "turbo run typecheck",
     "clean": "turbo run clean && rm -rf node_modules",
     "db:generate": "pnpm --filter @kit/database db:generate",
     "db:migrate": "pnpm --filter @kit/database db:migrate",
-    "db:studio": "pnpm --filter @kit/database db:studio"
+    "db:studio": "pnpm --filter @kit/database db:studio",
+    "db:seed": "pnpm --filter @kit/database db:seed"
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.1",

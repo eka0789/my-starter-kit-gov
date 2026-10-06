@@ -64,7 +64,7 @@
 
 7. **Migrations**:
    - Setiap perubahan schema wajib dibuatkan migrasi resmi via `pnpm drizzle-kit generate`.
-   - File migrasi disimpan di `packages/database/migrations/`.
+   - File migrasi disimpan di `packages/database/drizzle/` (lihat `out` di `drizzle.config.ts`).
    - Migration wajib diuji di environment staging sebelum production.
    - Jangan rollback migrasi production tanpa approval dan backup.
 
@@ -77,11 +77,11 @@
    - Development, staging, dan production harus memakai database terpisah (lihat `.env.example` + profil deployment di `tech-stack.md`).
    - Production memakai `PgBouncer` untuk connection pooling; jangan mengubah `max` di client tanpa alasan.
 
-2. **Seed Data**:
-   - Seed script hanya membuat data development/test (contoh: pegawai dummy, wilayah BPS), **bukan** data asli atau rahasia.
+2. **Seed Data** (perintah: `pnpm db:seed`, script `packages/database/src/seed.ts`):
+   - Seed hanya membuat data development/test (contoh di repo: wilayah BPS + pegawai dummy), **bukan** data asli atau rahasia.
    - Dilarang menaruh seed berisi NIK/NIP asli, kata sandi, TTE token, atau secret apa pun.
    - Kolom `created_by`/`updated_by` pada seed wajib memakai service principal `SERVICE_PRINCIPAL_ID` (`00000000-0000-0000-0000-000000000001`) dari `@kit/types`.
-   - Seed tidak boleh mengubah data production; jalankan hanya di environment yang dituju.
+   - Seed idempotent (`onConflictDoNothing`) dan tidak boleh mengubah data production; jalankan hanya di environment yang dituju.
 
 3. **Aturan Production**:
    - Dilarang `pnpm db:studio` / reset / migrate langsung di production tanpa proses rilis.

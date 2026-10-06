@@ -1,9 +1,18 @@
 import { createHash, createHmac } from 'crypto';
+import { desc } from 'drizzle-orm';
 import { type Database } from '@kit/database';
 import { auditLogs } from '@kit/database/schema';
 import type { Actor, Uuid } from '@kit/types';
 
-const HMAC_KEY = process.env.AUDIT_HMAC_KEY ?? 'development-only-change-me';
+const configuredHmacKey = process.env.AUDIT_HMAC_KEY;
+
+// Fail-closed: production tanpa AUDIT_HMAC_KEY tidak boleh jalan dengan kunci dev
+// (semua event hash akan bisa direkayasa ulang oleh pihak luar — lihat audit-integrity.md).
+if (process.env.NODE_ENV === 'production' && !configuredHmacKey) {
+  throw new Error('AUDIT_HMAC_KEY wajib diset di production (KMS/Secret Manager)');
+}
+
+const HMAC_KEY = configuredHmacKey ?? 'development-only-change-me';
 
 function computeHash(data: string): string {
   return createHash('sha256').update(data).digest('hex');
@@ -33,7 +42,9 @@ export async function logAudit(tx: Database, input: AuditEventInput): Promise<vo
   const prevRow = await tx
     .select({ eventHash: auditLogs.eventHash })
     .from(auditLogs)
-    .orderBy(auditLogs.createdAt)
+    // Ambil event TERAKHIR sebagai previous hash (urut menurun). Bug lama: ascending
+    // mengambil baris terlama sehingga verifyChain gagal mulai baris ke-3.
+    .orderBy(desc(auditLogs.createdAt))
     .limit(1);
 
   const previousHash = prevRow[0]?.eventHash ?? '';

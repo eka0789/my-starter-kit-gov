@@ -11,11 +11,14 @@ Starter kit menyediakan implementasi dasar yang dapat dikembangkan menuju produc
 ```bash
 pnpm install
 cp .env.example .env
+pnpm db:migrate   # buat tabel (butuh Postgres: docker compose -f infra/docker-compose.yml up -d postgres)
+pnpm db:seed      # data dummy: wilayah BPS + pegawai contoh
 pnpm dev
 ```
 
-- API: http://localhost:8787
-- Web: http://localhost:5173
+- Web: http://localhost:5173 — login dev: `dev-admin` / `dev-operator` / `dev-pimpinan`
+  (LocalAdapter, otomatis nonaktif di production; production wajib SSO resmi)
+- API: http://localhost:8787 (`GET /health/live`, `GET /api/v1/audit/verify`)
 
 ## Quality Gates
 

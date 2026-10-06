@@ -50,3 +50,15 @@ Dokumen ini mencatat keputusan arsitektural dan konvensi penting yang telah dise
 ### [2026-10-06] WCAG 2.1 Level AA Baseline Wajib (Bukan Opsional)
 - **Keputusan**: Setiap halaman/komponen wajib memenuhi WCAG 2.1 AA (Permen Kominfo 8/2019). 6 State UI wajib: Loading (Skeleton), Error, Empty, Data View, Responsive, Dark Mode. ErrorBoundary per halaman. Icon-only button: `aria-label` + `sr-only`. Form: `<label htmlFor>` + `aria-invalid` + `aria-describedby`. Table: `<th scope="col">`.
 - **Rasional**: Regulasi wajib untuk portal publik pemerintah. Aksesibilitas bukan fitur tambahan tapi syarat legal.
+
+### [2026-10-07] Baseline Security Middleware API (Headers, Rate Limit, Dev Login)
+- **Keputusan**: Terpasang `securityHeaders` (CSP, X-Frame-Options, HSTS, dll. — juga di `infra/nginx.conf`) dan rate limiter in-memory per-IP di `apps/api`: global `/api/*` 100 req/menit, login 5/15 menit. Endpoint `POST /api/v1/auth/dev-login` (LocalAdapter) hanya aktif non-production; production wajib SSO resmi (OIDC/SAML2). Verifikasi hash chain diekspos via `GET /api/v1/audit/verify` (permission `audit.verify`).
+- **Rasional**: Menerapkan `security.md` yang sebelumnya hanya dokumen. Rate limiter in-memory adalah baseline dev — production wajib tambahan gateway (Nginx `limit_req`) atau Redis karena tidak dibagi antar instance.
+
+### [2026-10-07] Perbaikan Hash Chain Audit (previous_hash dari event TERAKHIR)
+- **Keputusan**: `logAudit` kini mengambil `previousEventHash` dari baris terbaru (`ORDER BY created_at DESC LIMIT 1`), bukan baris terlama.
+- **Rasional**: Bug: urutan ascending mengambil baris pertama sehingga `verifyChain` gagal mulai baris ke-3 — merusak klaim tamper-evident (BPK/BSSN). Catatan: untie dua insert dengan `created_at` identik masih mungkin; jika audit volume tinggi, pertimbangkan sequence kolom monotonik.
+
+### [2026-10-07] Enkripsi Field-Level AES-256-GCM + Fail-Fast HMAC Production
+- **Keputusan**: Util `encryptField/decryptField` (AES-256-GCM, kunci `FIELD_ENCRYPTION_KEY` base64 32-byte) di `apps/api/src/utils/crypto.ts` untuk kolom `*_encrypted`. `AUDIT_HMAC_KEY` kini wajib (fail-fast saat boot) di production. Token web disimpan di memori saja (dilarang localStorage). CI GitHub Actions (lint/typecheck/test/build + `pnpm audit` + gitleaks) di `.github/workflows/ci.yml`.
+- **Rasional**: `data-protection.md` mensyaratkan enkripsi at-rest untuk NIK; kolom `nik_encrypted` sudah ada tapi tidak ada mekanismenya. Kunci HMAC dev yang dipakai production membuat event_hash bisa direkayasa ulang pihak luar.

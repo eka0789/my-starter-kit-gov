@@ -106,6 +106,22 @@ Error:
 - Endpoint export/PII penuh wajib permission, purpose, re-auth/MFA, dan audit.
 - Public routes harus eksplisit allowlist: `/health/live`, `/health/ready`, endpoint katalog publik yang disetujui.
 
+### Dev Login (non-production saja)
+
+- `POST /api/v1/auth/dev-login` — body `{ "username": "dev-admin" | "dev-operator" | "dev-pimpinan" }`, mengembalikan `data.token` + `data.actor`.
+- Endpoint ini SENGAJA nonaktif di production (fail-fast 404 + `LocalAdapter` menolak `NODE_ENV=production`).
+- Rate limit login: 5 attempt / 15 menit per IP (lihat `routes/auth.ts`).
+
+### Verifikasi Audit Trail
+
+- `GET /api/v1/audit/verify` — verifikasi hash chain `audit_logs` (permission `audit.verify`). Jalankan berkala oleh petugas audit/monitoring.
+
+### Rate Limiting (baseline terpasang)
+
+- Global `/api/*`: 100 request / menit per IP (`app.ts` + `middleware/rate-limit.ts`).
+- Login: 5 attempt / 15 menit per IP (`routes/auth.ts`).
+- Baseline in-memory per instance; production wajib tambahan pembatasan di gateway (Nginx `limit_req`) atau Redis.
+
 ---
 
 ## Data Privacy API
